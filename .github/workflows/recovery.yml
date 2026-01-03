@@ -1,4 +1,4 @@
-name: Build TWRP for Poco X6 Pro (JAADU Final Fix)
+name: Build TWRP for Poco X6 Pro (JAADU Chatty Edition)
 
 on:
   workflow_dispatch:
@@ -12,6 +12,11 @@ jobs:
     steps:
     - name: Checkout Repo
       uses: actions/checkout@v4
+
+    # --- NOTIFICATION 1: START ---
+    - name: Notify Telegram (Start)
+      run: |
+        curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d chat_id=${{ secrets.TELEGRAM_TO }} -d text="🚀 JAADU Build Started!%0A%0AStatus: Initializing...%0AEngine: Curl (Manual Mode)"
 
     - name: Free Up Disk Space
       uses: jlumbroso/free-disk-space@main
@@ -29,6 +34,11 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 libncurses5 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig
 
+    # --- NOTIFICATION 2: ENVIRONMENT READY ---
+    - name: Notify Telegram (Deps Installed)
+      run: |
+        curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d chat_id=${{ secrets.TELEGRAM_TO }} -d text="✅ Environment Ready.%0A%0AStarting Source Sync (This takes a while)..."
+
     - name: Install Repo Tool
       run: |
         mkdir -p ~/bin
@@ -38,16 +48,17 @@ jobs:
         git config --global user.email "bot@github.com"
         git config --global user.name "GitHub Actions"
 
-    - name: Notify Telegram (Start)
-      run: |
-        curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d chat_id=${{ secrets.TELEGRAM_TO }} -d text="🚀 JAADU Build Started!%0A%0AStatus: Fixing Kernel Definitions...%0AEngine: Curl (Manual Mode)"
-
     - name: Initialize Source (TWRP 12.1)
       run: |
         mkdir workspace
         cd workspace
         repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1 --depth=1
         repo sync -j$(nproc --all)
+
+    # --- NOTIFICATION 3: SYNC COMPLETE ---
+    - name: Notify Telegram (Sync Done)
+      run: |
+        curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d chat_id=${{ secrets.TELEGRAM_TO }} -d text="✅ Source Code Synced.%0A%0ACloning Device Tree & Injecting AxionOS Files..."
 
     - name: Clone Device Tree & Inject Donor Files
       run: |
@@ -64,12 +75,11 @@ jobs:
         cp $GITHUB_WORKSPACE/dtb_axion device/xiaomi/duchamp/prebuilt/dtb
         
         # 3. CRITICAL FIX: FORCE KERNEL DEFINITIONS
-        # We write these to BoardConfig to trick Ninja into building
         echo "" >> device/xiaomi/duchamp/BoardConfig.mk
         echo 'TARGET_PREBUILT_KERNEL := $(LOCAL_PATH)/prebuilt/kernel' >> device/xiaomi/duchamp/BoardConfig.mk
         echo 'TARGET_PREBUILT_DTB := $(LOCAL_PATH)/prebuilt/dtb' >> device/xiaomi/duchamp/BoardConfig.mk
         
-        # This tells the build system "YES, we have a kernel, DO NOT SKIP."
+        # FORCE KERNEL
         echo 'TARGET_NO_KERNEL := false' >> device/xiaomi/duchamp/BoardConfig.mk
         echo 'BOARD_KERNEL_SEPARATED_DTBO := true' >> device/xiaomi/duchamp/BoardConfig.mk
         
@@ -77,6 +87,11 @@ jobs:
         echo 'TW_INCLUDE_CRYPTO := false' >> device/xiaomi/duchamp/BoardConfig.mk
         echo 'TW_INCLUDE_FBE_METADATA_DECRYPT := false' >> device/xiaomi/duchamp/BoardConfig.mk
         echo 'TW_DEVICE_VERSION := JAADU_Edition' >> device/xiaomi/duchamp/BoardConfig.mk
+
+    # --- NOTIFICATION 4: INJECTION COMPLETE ---
+    - name: Notify Telegram (Injection Done)
+      run: |
+        curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage -d chat_id=${{ secrets.TELEGRAM_TO }} -d text="✅ Files Injected Successfully.%0A%0AStarting Compilation (The Heavy Lifting)...%0AWait ~20 mins."
 
     - name: Build Recovery (Shotgun Mode)
       run: |
@@ -87,7 +102,7 @@ jobs:
         . build/envsetup.sh
         lunch twrp_duchamp-eng
         
-        # We try to build everything to catch where the recovery is hiding
+        # Shotgun Build
         mka recoveryimage || true
         mka bootimage || true
         mka vendorbootimage || true
@@ -95,10 +110,8 @@ jobs:
     - name: Find and Rename Output
       run: |
         cd workspace/out/target/product/duchamp
-        # Check what we actually got
         ls -lh *.img || echo "No images found"
         
-        # Try to find the valid image and rename it for upload
         if [ -f "vendor_boot.img" ]; then
             mv vendor_boot.img ../../../../../recovery-JAADU.img
             echo "IMAGE_FOUND=true" >> $GITHUB_ENV
@@ -112,6 +125,7 @@ jobs:
             echo "IMAGE_FOUND=false" >> $GITHUB_ENV
         fi
 
+    # --- NOTIFICATION 5: FINAL RESULT ---
     - name: Notify Telegram (Success & Upload)
       if: env.IMAGE_FOUND == 'true'
       run: |
