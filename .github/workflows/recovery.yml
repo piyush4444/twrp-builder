@@ -1,7 +1,7 @@
 name: Build TWRP for Poco X6 Pro (AxionOS Donor)
 
 on:
-  workflow_dispatch: # This allows the manual "Run" button
+  workflow_dispatch:
 
 jobs:
   build:
@@ -13,7 +13,6 @@ jobs:
     - name: Checkout Repo
       uses: actions/checkout@v4
 
-    # 1. CLEAN DISK SPACE (Fixed version)
     - name: Free Up Disk Space
       uses: jlumbroso/free-disk-space@main
       with:
@@ -52,25 +51,39 @@ jobs:
         # 1. Clone the Duchamp tree
         git clone https://github.com/cdpcrp/custom_recovery_tree_xiaomi_duchamp device/xiaomi/duchamp
         
-        # 2. INJECT YOUR AXION FILES (Crucial Step)
+        # 2. INJECT YOUR AXION FILES
         echo "Injecting Kernel..."
         cp $GITHUB_WORKSPACE/kernel_axion device/xiaomi/duchamp/prebuilt/kernel
         
         echo "Injecting DTB..."
         cp $GITHUB_WORKSPACE/dtb_axion device/xiaomi/duchamp/prebuilt/dtb
         
-        # 3. Modify BoardConfig to FORCE use of these files
+        # 3. Modify BoardConfig (With Newlines and JAADU branding)
+        # Add blank lines to prevent the "vendorTARGET" error
+        echo "" >> device/xiaomi/duchamp/BoardConfig.mk
+        echo "" >> device/xiaomi/duchamp/BoardConfig.mk
+        
+        # Inject Kernel paths
         echo 'TARGET_PREBUILT_KERNEL := $(LOCAL_PATH)/prebuilt/kernel' >> device/xiaomi/duchamp/BoardConfig.mk
         echo 'TARGET_PREBUILT_DTB := $(LOCAL_PATH)/prebuilt/dtb' >> device/xiaomi/duchamp/BoardConfig.mk
         
-        # 4. Disable Encryption (For DFE/RW support)
+        # Disable Encryption
         echo 'TW_INCLUDE_CRYPTO := false' >> device/xiaomi/duchamp/BoardConfig.mk
         echo 'TW_INCLUDE_FBE_METADATA_DECRYPT := false' >> device/xiaomi/duchamp/BoardConfig.mk
+        
+        # --- ADDING MAINTAINER NAME ---
+        # This makes the version string on the home screen say "JAADU"
+        echo 'TW_DEVICE_VERSION := JAADU_Edition' >> device/xiaomi/duchamp/BoardConfig.mk
 
     - name: Build Recovery
       run: |
         cd workspace
         export ALLOW_MISSING_DEPENDENCIES=true
+        
+        # --- SET BUILDER IDENTITY ---
+        export BUILD_USERNAME=JAADU
+        export BUILD_HOSTNAME=Recovery-Lab
+        
         . build/envsetup.sh
         lunch twrp_duchamp-eng
         mka recoveryimage
@@ -78,5 +91,5 @@ jobs:
     - name: Upload Recovery
       uses: actions/upload-artifact@v4
       with:
-        name: recovery-image
+        name: recovery-image-JAADU
         path: workspace/out/target/product/duchamp/recovery.img
