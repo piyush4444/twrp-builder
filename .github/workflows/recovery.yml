@@ -1,4 +1,4 @@
-name: Build TWRP for Poco X6 Pro (AxionOS Donor)
+name: Build TWRP for Poco X6 Pro (JAADU Edition)
 
 on:
   workflow_dispatch:
@@ -12,6 +12,21 @@ jobs:
     steps:
     - name: Checkout Repo
       uses: actions/checkout@v4
+
+    # --- TELEGRAM NOTIFICATION: START ---
+    - name: Notify Telegram - Build Started
+      uses: appleboy/telegram-action@master
+      with:
+        to: ${{ secrets.TELEGRAM_TO }}
+        token: ${{ secrets.TELEGRAM_TOKEN }}
+        message: |
+          🚀 JAADU Build Started!
+          -----------------------
+          Device: Poco X6 Pro (AxionOS 16)
+          Branch: ${{ github.ref_name }}
+          Status: Compiling...
+          
+          You can relax. I'll send the file when I'm done.
 
     - name: Free Up Disk Space
       uses: jlumbroso/free-disk-space@main
@@ -48,48 +63,69 @@ jobs:
     - name: Clone Device Tree & Inject Donor Files
       run: |
         cd workspace
-        # 1. Clone the Duchamp tree
         git clone https://github.com/cdpcrp/custom_recovery_tree_xiaomi_duchamp device/xiaomi/duchamp
         
-        # 2. INJECT YOUR AXION FILES
+        # INJECT FILES
         echo "Injecting Kernel..."
         cp $GITHUB_WORKSPACE/kernel_axion device/xiaomi/duchamp/prebuilt/kernel
-        
         echo "Injecting DTB..."
         cp $GITHUB_WORKSPACE/dtb_axion device/xiaomi/duchamp/prebuilt/dtb
         
-        # 3. Modify BoardConfig (With Newlines and JAADU branding)
-        # Add blank lines to prevent the "vendorTARGET" error
+        # MODIFY CONFIG
         echo "" >> device/xiaomi/duchamp/BoardConfig.mk
         echo "" >> device/xiaomi/duchamp/BoardConfig.mk
-        
-        # Inject Kernel paths
         echo 'TARGET_PREBUILT_KERNEL := $(LOCAL_PATH)/prebuilt/kernel' >> device/xiaomi/duchamp/BoardConfig.mk
         echo 'TARGET_PREBUILT_DTB := $(LOCAL_PATH)/prebuilt/dtb' >> device/xiaomi/duchamp/BoardConfig.mk
-        
-        # Disable Encryption
         echo 'TW_INCLUDE_CRYPTO := false' >> device/xiaomi/duchamp/BoardConfig.mk
         echo 'TW_INCLUDE_FBE_METADATA_DECRYPT := false' >> device/xiaomi/duchamp/BoardConfig.mk
         
-        # --- ADDING MAINTAINER NAME ---
-        # This makes the version string on the home screen say "JAADU"
+        # JAADU BRANDING
         echo 'TW_DEVICE_VERSION := JAADU_Edition' >> device/xiaomi/duchamp/BoardConfig.mk
 
     - name: Build Recovery
       run: |
         cd workspace
         export ALLOW_MISSING_DEPENDENCIES=true
-        
-        # --- SET BUILDER IDENTITY ---
         export BUILD_USERNAME=JAADU
         export BUILD_HOSTNAME=Recovery-Lab
-        
         . build/envsetup.sh
         lunch twrp_duchamp-eng
         mka recoveryimage
 
-    - name: Upload Recovery
+    # --- RENAME FILE FOR UPLOAD ---
+    - name: Rename Recovery
+      run: |
+        mv workspace/out/target/product/duchamp/recovery.img recovery-JAADU.img
+
+    # --- TELEGRAM NOTIFICATION: SUCCESS (SEND FILE) ---
+    - name: Notify Telegram - Success & Upload
+      if: success()
+      uses: appleboy/telegram-action@master
+      with:
+        to: ${{ secrets.TELEGRAM_TO }}
+        token: ${{ secrets.TELEGRAM_TOKEN }}
+        document: recovery-JAADU.img
+        message: |
+          ✅ Build Successful!
+          
+          Here is your fresh TWRP, Boss.
+          Signed by: JAADU
+
+    # --- TELEGRAM NOTIFICATION: FAILURE ---
+    - name: Notify Telegram - Failed
+      if: failure()
+      uses: appleboy/telegram-action@master
+      with:
+        to: ${{ secrets.TELEGRAM_TO }}
+        token: ${{ secrets.TELEGRAM_TOKEN }}
+        message: |
+          ❌ Build Failed!
+          
+          Check the logs here to fix it:
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    - name: Upload Artifact (Backup to GitHub)
       uses: actions/upload-artifact@v4
       with:
         name: recovery-image-JAADU
-        path: workspace/out/target/product/duchamp/recovery.img
+        path: recovery-JAADU.img
