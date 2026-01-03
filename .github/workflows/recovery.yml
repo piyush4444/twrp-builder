@@ -1,17 +1,21 @@
-name: Build TWRP for Poco X6 Pro
+name: Build TWRP for Poco X6 Pro (AxionOS Donor)
+
 on:
-  workflow_dispatch: # Allows you to manually trigger the build button
+  workflow_dispatch: # This allows the manual "Run" button
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     
     steps:
-    - name: Checkout
+    - name: Checkout Repo
       uses: actions/checkout@v4
 
+    # 1. CLEAN DISK SPACE (Fixed version)
     - name: Free Up Disk Space
-      uses: jens-maus/action-free-disk-space@v1
+      uses: jlumbroso/free-disk-space@main
       with:
         tool-cache: true
         android: true
@@ -20,9 +24,8 @@ jobs:
         large-packages: true
         docker-images: true
         swap-storage: false
-      # This clears about 30GB of space so we can fit the build.
 
-    - name: Set up Build Environment
+    - name: Install Dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 libncurses5 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig
@@ -36,30 +39,39 @@ jobs:
         git config --global user.email "bot@github.com"
         git config --global user.name "GitHub Actions"
 
-    - name: Initialize Repo (Minimal Manifest)
+    - name: Initialize Source (TWRP 12.1)
       run: |
         mkdir workspace
         cd workspace
-        # We use TWRP 12.1 branch (Android 12+)
         repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1 --depth=1
         repo sync -j$(nproc --all)
 
-    - name: Clone Device Tree (Duchamp)
+    - name: Clone Device Tree & Inject Donor Files
       run: |
         cd workspace
-        # Cloning the tree you found
+        # 1. Clone the Duchamp tree
         git clone https://github.com/cdpcrp/custom_recovery_tree_xiaomi_duchamp device/xiaomi/duchamp
         
-        # --- HERE IS WHERE YOU WOULD COPY YOUR AXION KERNEL ---
-        # Since we are in the cloud, we can't copy local files easily.
-        # We will download your kernel from a direct link (e.g., if you upload it to GitHub Releases or a text file).
-        # For now, let's assume you want to build with the default tree to test errors.
+        # 2. INJECT YOUR AXION FILES (Crucial Step)
+        echo "Injecting Kernel..."
+        cp $GITHUB_WORKSPACE/kernel_axion device/xiaomi/duchamp/prebuilt/kernel
+        
+        echo "Injecting DTB..."
+        cp $GITHUB_WORKSPACE/dtb_axion device/xiaomi/duchamp/prebuilt/dtb
+        
+        # 3. Modify BoardConfig to FORCE use of these files
+        echo 'TARGET_PREBUILT_KERNEL := $(LOCAL_PATH)/prebuilt/kernel' >> device/xiaomi/duchamp/BoardConfig.mk
+        echo 'TARGET_PREBUILT_DTB := $(LOCAL_PATH)/prebuilt/dtb' >> device/xiaomi/duchamp/BoardConfig.mk
+        
+        # 4. Disable Encryption (For DFE/RW support)
+        echo 'TW_INCLUDE_CRYPTO := false' >> device/xiaomi/duchamp/BoardConfig.mk
+        echo 'TW_INCLUDE_FBE_METADATA_DECRYPT := false' >> device/xiaomi/duchamp/BoardConfig.mk
 
     - name: Build Recovery
       run: |
         cd workspace
         export ALLOW_MISSING_DEPENDENCIES=true
-        source build/envsetup.sh
+        . build/envsetup.sh
         lunch twrp_duchamp-eng
         mka recoveryimage
 
